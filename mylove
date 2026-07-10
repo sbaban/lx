@@ -66,8 +66,8 @@
     <script>
         // ===================== 配置区 =====================
         //const IMAGE_URL = "https://picsum.photos/800/800"; // 换成你的图片地址
-        const IMAGE_URL = "https://picsum.photos/800/800";
-        const TITLE_TEXT = "✨ 专属于你的小惊喜 ✨";
+        const IMAGE_URL = "test.jpg";
+        const TITLE_TEXT = "✨ S U R P R I S E ✨";
         const END_TEXT = "希望你喜欢这份专属的心意 💗";
         const MIN_CIRCLE_SIZE = 4; // 最小圆直径，数值越小最终越清晰
         // ===================================================
