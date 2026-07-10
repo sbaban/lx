@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>给你的小惊喜</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+        .title {
+            color: #d63384;
+            font-size: 22px;
+            margin-bottom: 16px;
+            text-align: center;
+            font-weight: 500;
+        }
+        .tip {
+            color: #8a5a44;
+            font-size: 14px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        #container {
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(180, 80, 120, 0.2);
+            background: transparent; /* 去掉白色背景，改为透明 */
+        }
+        svg {
+            display: block;
+            touch-action: none;
+            cursor: crosshair;
+            background: transparent; /* svg背景也设为透明 */
+        }
+        .end-text {
+            margin-top: 20px;
+            color: #d63384;
+            font-size: 18px;
+            opacity: 0;
+            transition: opacity 1.5s ease;
+            text-align: center;
+            line-height: 1.5;
+        }
+        .end-text.show {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <h1 class="title">✨ 专属于你的小惊喜 ✨</h1>
+    <p class="tip">用手指慢慢划过，画面会慢慢变清晰~</p>
+    <div id="container"></div>
+    <p class="end-text" id="endText">希望你喜欢这份专属的心意 💗</p>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script>
+        // ===================== 配置区 =====================
+        //const IMAGE_URL = "https://picsum.photos/800/800"; // 换成你的图片地址
+        const IMAGE_URL = "https://picsum.photos/800/800";
+        const TITLE_TEXT = "✨ 专属于你的小惊喜 ✨";
+        const END_TEXT = "希望你喜欢这份专属的心意 💗";
+        const MIN_CIRCLE_SIZE = 4; // 最小圆直径，数值越小最终越清晰
+        // ===================================================
+
+        // 全局变量统一声明
+        let width, height;
+        let circles = [];
+        let quadtree;
+        let maxLevel;
+        let colorTree;
+
+        document.querySelector('.title').textContent = TITLE_TEXT;
+        document.getElementById('endText').textContent = END_TEXT;
+
+        const container = document.getElementById('container');
+
+        // 加载图片并初始化
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.src = IMAGE_URL;
+        
+        img.onload = function() {
+            try {
+                // 取2的幂次正方形尺寸，保证四等分无误差
+                const maxWidth = Math.min(800, window.innerWidth - 40);
+                const size = Math.pow(2, Math.floor(Math.log2(maxWidth)));
+                width = size;
+                height = size;
+                container.style.width = width + 'px';
+                container.style.height = height + 'px';
+
+                // 预构建所有层级的颜色树
+                colorTree = buildColorTree(img, size);
+                maxLevel = colorTree.length - 1;
+
+                // 初始根节点：铺满整个画布的大圆
+                circles = [{
+                    x: size / 2,
+                    y: size / 2,
+                    r: size / 2,
+                    color: colorTree[0][0][0],
+                    level: 0
+                }];
+
+                initSVG();
+                render();
+                bindEvents();
+            } catch (e) {
+                alert("初始化失败：" + e.message + "\n如果是本地图片，请用在线图片或本地服务器打开");
+                console.error(e);
+            }
+        }
+
+        img.onerror = function() {
+            alert("图片加载失败，请检查图片地址是否正确");
+        }
+
+        // 预构建颜色四叉树：从像素层逐层向上合并平均色
+        function buildColorTree(img, size) {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            
+            // 居中裁剪填充为正方形
+            const scale = Math.max(size / img.naturalWidth, size / img.naturalHeight);
+            const sw = size / scale;
+            const sh = size / scale;
+            const sx = (img.naturalWidth - sw) / 2;
+            const sy = (img.naturalHeight - sh) / 2;
+            ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
+
+            const imageData = ctx.getImageData(0, 0, size, size).data;
+            
+            // 最底层：像素级颜色
+            let currentLayer = [];
+            for (let y = 0; y < size; y++) {
+                let row = [];
+                for (let x = 0; x < size; x++) {
+                    const i = (y * size + x) * 4;
+                    row.push([imageData[i], imageData[i+1], imageData[i+2]]);
+                }
+                currentLayer.push(row);
+            }
+
+            const layers = [currentLayer];
+            let currentSize = size;
+
+            // 逐层向上合并，直到达到最小圆尺寸
+            while (currentSize > MIN_CIRCLE_SIZE) {
+                currentSize /= 2;
+                const newLayer = [];
+                for (let y = 0; y < currentSize; y++) {
+                    let row = [];
+                    for (let x = 0; x < currentSize; x++) {
+                        const c1 = currentLayer[y*2][x*2];
+                        const c2 = currentLayer[y*2][x*2+1];
+                        const c3 = currentLayer[y*2+1][x*2];
+                        const c4 = currentLayer[y*2+1][x*2+1];
+                        const r = Math.round((c1[0] + c2[0] + c3[0] + c4[0]) / 4);
+                        const g = Math.round((c1[1] + c2[1] + c3[1] + c4[1]) / 4);
+                        const b = Math.round((c1[2] + c2[2] + c3[2] + c4[2]) / 4);
+                        row.push([r, g, b]);
+                    }
+                    newLayer.push(row);
+                }
+                layers.unshift(newLayer);
+                currentLayer = newLayer;
+            }
+
+            return layers;
+        }
+
+        function initSVG() {
+            d3.select("#container").selectAll("svg").remove();
+            d3.select("#container")
+                .append("svg")
+                .attr("width", width)
+                .attr("height", height);
+        }
+
+        // 增量渲染，只更新变化的圆
+        function render() {
+            const svg = d3.select("svg");
+            const selection = svg.selectAll("circle")
+                .data(circles, d => `${d.x}-${d.y}-${d.r}`);
+
+            selection.enter()
+                .append("circle")
+                .attr("cx", d => d.x)
+                .attr("cy", d => d.y)
+                .attr("r", d => d.r)
+                .attr("fill", d => `rgb(${d.color.join(',')})`);
+
+            selection.exit().remove();
+
+            // 更新四叉树用于快速碰撞检测
+            quadtree = d3.quadtree()
+                .x(d => d.x)
+                .y(d => d.y)
+                .addAll(circles);
+
+            // 完成度检测
+            const minLevelCount = circles.filter(c => c.level >= maxLevel - 1).length;
+            if (minLevelCount > 200) {
+                document.getElementById('endText').classList.add('show');
+            }
+        }
+
+        // 核心分裂逻辑
+        function splitAt(x, y) {
+            if (!quadtree || circles.length === 0) return;
+            
+            // 四叉树快速查找最近的圆心
+            const found = quadtree.find(x, y);
+            if (!found) return;
+
+            // 精确判断点是否在圆内
+            const dx = x - found.x;
+            const dy = y - found.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+
+            // 命中且未到最小层级则分裂为4个小圆
+            if (dist < found.r && found.level < maxLevel) {
+                const newR = found.r / 2;
+                const newLevel = found.level + 1;
+                
+                // 计算四个子圆在颜色层中的网格坐标
+                const baseGridX = Math.floor((found.x - found.r) / (newR * 2));
+                const baseGridY = Math.floor((found.y - found.r) / (newR * 2));
+
+                // 从预计算颜色树取色
+                const c1 = colorTree[newLevel][baseGridY]?.[baseGridX] || found.color;
+                const c2 = colorTree[newLevel][baseGridY]?.[baseGridX + 1] || found.color;
+                const c3 = colorTree[newLevel][baseGridY + 1]?.[baseGridX] || found.color;
+                const c4 = colorTree[newLevel][baseGridY + 1]?.[baseGridX + 1] || found.color;
+
+                // 生成四个子圆，严格对齐网格
+                const newCircles = [
+                    { x: found.x - newR, y: found.y - newR, r: newR, color: c1, level: newLevel },
+                    { x: found.x + newR, y: found.y - newR, r: newR, color: c2, level: newLevel },
+                    { x: found.x - newR, y: found.y + newR, r: newR, color: c3, level: newLevel },
+                    { x: found.x + newR, y: found.y + newR, r: newR, color: c4, level: newLevel }
+                ];
+
+                // 替换父圆，重新渲染
+                const index = circles.indexOf(found);
+                circles.splice(index, 1, ...newCircles);
+                render();
+            }
+        }
+
+        function bindEvents() {
+            const svg = d3.select("svg");
+
+            // 鼠标事件
+            svg.on("mousemove", function(event) {
+                const [x, y] = d3.pointer(event, this);
+                splitAt(x, y);
+            });
+
+            // 触摸事件
+            svg.on("touchmove", function(event) {
+                event.preventDefault();
+                const touch = event.touches[0];
+                const rect = this.getBoundingClientRect();
+                const x = touch.clientX - rect.left;
+                const y = touch.clientY - rect.top;
+                splitAt(x, y);
+            });
+        }
+    </script>
+</body>
+</html>
