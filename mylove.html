@@ -49,7 +49,8 @@
     <script>
         // ========== 可自定义配置 ==========
         const MIN_CELL_SIZE = 6;    // 最小方块尺寸，数值越小最终画面越清晰，推荐4-12
-        const IMAGE_SRC = 'test.jpg'; // 你的惊喜图片路径，和html同目录直接写文件名
+        const IMAGE_LIST = ['test.jpg', 'B.jpg', 'C.jpg', 'D.jpg'];  // 你的四张惊喜图片
+        const IMAGE_SRC = IMAGE_LIST[Math.floor(Math.random() * IMAGE_LIST.length)];  // 每次随机选一张
         // ==================================
 
         const canvas = document.getElementById('pixelCanvas');
